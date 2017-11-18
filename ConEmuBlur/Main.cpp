@@ -11,9 +11,8 @@ enum class AccentState
 	BLURBEHIND,
 };
 
-enum AccentPolicyFlags : int
+enum AccentPolicyFlags : unsigned int
 {
-	APPLY_WINDOW = 1,		//Apply to window
 	APPLY_TINT = 1 << 1,	//Applies tint using Color in AccentPolicy
 	APPLY_DESKTOP = 1 << 2,	//Applies to whole desktop, for blur, only applies to the right and bottom of the window
 };
@@ -21,8 +20,8 @@ enum AccentPolicyFlags : int
 struct AccentPolicy
 {
 	AccentState AccentState;
-	int Flags;
-	int Color;
+	unsigned int Flags;
+	unsigned int Color;
 	int AnimationId;
 };
 
@@ -31,32 +30,30 @@ enum class CompositionAttribute
 	ACCENT_POLICY = 19
 };
 
-struct WindowsCompositionAttributeData
+struct WindowCompositionAttributeData
 {
 	CompositionAttribute Attribute;
 	PVOID Data;
 	ULONG DataSize;
 };
 
-typedef BOOL(WINAPI *SetWindowCompositionAttribute_t)(HWND, WindowsCompositionAttributeData*);
-static SetWindowCompositionAttribute_t SetWindowCompositionAttribute = nullptr;
-static HINSTANCE module = nullptr;
+using SetWindowCompositionAttribute_t = bool (WINAPI*)(HWND, WindowCompositionAttributeData*);
 
 int main(int argc, char* argv[]) 
 {
-	HWND conEmuHwnd = FindWindowW(L"VirtualConsoleClass", NULL);
-	if (conEmuHwnd == NULL) {
+	HWND conEmuHwnd = FindWindowW(L"VirtualConsoleClass", nullptr);
+	if (conEmuHwnd == nullptr) {
 		std::cerr << "Could not find ConEmu window" << std::endl;
 		return EXIT_FAILURE;
 	}
 
-	module = LoadLibrary("user32.dll");
+	HMODULE module = LoadLibrary("user32.dll");
 	if (module == nullptr) {
 		std::cerr << "Error loading user32.dll" << std::endl;
 		return EXIT_FAILURE;
 	}
 
-	SetWindowCompositionAttribute = (SetWindowCompositionAttribute_t)GetProcAddress(module, "SetWindowCompositionAttribute");
+	auto SetWindowCompositionAttribute = reinterpret_cast<SetWindowCompositionAttribute_t>(GetProcAddress(module, "SetWindowCompositionAttribute"));
 	if (SetWindowCompositionAttribute == nullptr) {
 		std::cerr << "Error getting function SetWindowCompositionAttribute" << std::endl;
 		FreeLibrary(module);
@@ -65,20 +62,22 @@ int main(int argc, char* argv[])
 
 	unsigned int percent = 90;
 	if (argc > 1) {
-		std::istringstream iss{ argv[1] };
+		std::istringstream iss{argv[1]};
 		if (!(iss >> percent) || percent > 100) {
-			std::cerr << "Argument should be a percentage 0 - 100 for the transparency" << std::endl;
+			std::cerr << "Argument should be a percentage 0 - 100 for the opacity" << std::endl;
 			FreeLibrary(module);
 			return EXIT_FAILURE;
 		}
 	}
 
-	unsigned int alpha = static_cast<unsigned int>(std::round((percent / 100.0f) * 255));
-	int colour = static_cast<int>(alpha << 24 | 0);
+	auto alpha = static_cast<unsigned int>(std::round((percent / 100.0f) * 255));
+	auto colour = alpha << 24;
 
 	AccentPolicy policy = { AccentState::BLURBEHIND, APPLY_TINT, colour, 0 };
-	WindowsCompositionAttributeData attribute = { CompositionAttribute::ACCENT_POLICY, &policy, sizeof(AccentPolicy) };
-	SetWindowCompositionAttribute(conEmuHwnd, &attribute);
+	WindowCompositionAttributeData attribute = { CompositionAttribute::ACCENT_POLICY, &policy, sizeof(AccentPolicy) };
+	if (!SetWindowCompositionAttribute(conEmuHwnd, &attribute)) {
+		std::cerr << "Error setting window composition" << std::endl;
+	}
 
 	FreeLibrary(module);
 }
