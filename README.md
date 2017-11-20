@@ -15,6 +15,7 @@ Run the program after ConEmu is started.
 > ConEmuBlur.exe [opacity]
 
 Opacity is a value from 0 - 100 that represents percentage. The default is 90.
+Also disable transparency in conemu options.
 
 # How to build
 Build the solution with Visual Studio 2017 C++ tools. Make sure you have the Windows 10 SDK.
