@@ -1,3 +1,4 @@
+#include "CLI11.hpp"
 #include <Windows.h>
 #include <iostream>
 #include <sstream>
@@ -9,12 +10,12 @@ enum class AccentState
 	GRADIENT,
 	GRADIENT_TRANSPARENT,
 	BLURBEHIND,
+	ACRYLIC
 };
 
 enum AccentPolicyFlags : unsigned int
 {
 	APPLY_TINT = 1 << 1,	//Applies tint using Color in AccentPolicy
-	APPLY_DESKTOP = 1 << 2,	//Applies to whole desktop, for blur, only applies to the right and bottom of the window
 };
 
 struct AccentPolicy
@@ -41,39 +42,52 @@ using SetWindowCompositionAttribute_t = bool (WINAPI*)(HWND, WindowCompositionAt
 
 int main(int argc, char* argv[]) 
 {
-	HWND conEmuHwnd = FindWindowW(L"VirtualConsoleClass", nullptr);
+	const auto conEmuHwnd = FindWindowW(L"VirtualConsoleClass", nullptr);
 	if (conEmuHwnd == nullptr) {
 		std::cerr << "Could not find ConEmu window" << std::endl;
 		return EXIT_FAILURE;
 	}
 
-	HMODULE module = LoadLibrary("user32.dll");
+	const auto module = LoadLibrary("user32.dll");
 	if (module == nullptr) {
 		std::cerr << "Error loading user32.dll" << std::endl;
 		return EXIT_FAILURE;
 	}
 
-	auto SetWindowCompositionAttribute = reinterpret_cast<SetWindowCompositionAttribute_t>(GetProcAddress(module, "SetWindowCompositionAttribute"));
+	const auto SetWindowCompositionAttribute = reinterpret_cast<SetWindowCompositionAttribute_t>(GetProcAddress(module, "SetWindowCompositionAttribute"));
 	if (SetWindowCompositionAttribute == nullptr) {
 		std::cerr << "Error getting function SetWindowCompositionAttribute" << std::endl;
 		FreeLibrary(module);
 		return EXIT_FAILURE;
 	}
 
+	const auto OPTION_BLURBEHIND = "normal";
+	const auto OPTION_ACRYLIC = "acrylic";
+	std::string type;
 	unsigned int percent = 90;
-	if (argc > 1) {
-		std::istringstream iss{argv[1]};
-		if (!(iss >> percent) || percent > 100) {
-			std::cerr << "Argument should be a percentage 0 - 100 for the opacity" << std::endl;
-			FreeLibrary(module);
-			return EXIT_FAILURE;
-		}
+
+	CLI::App app{ "ConEmu blur" };
+	app.add_set("-t,--type", type, { OPTION_BLURBEHIND, OPTION_ACRYLIC }, "Blur type");
+	app.add_option("-o, --opacity", percent, "Opacity from 0 - 100");
+	CLI11_PARSE(app, argc, argv);
+
+	if (percent > 100) {
+		std::cerr << "Argument should be a percentage 0 - 100 for the opacity" << std::endl;
+		FreeLibrary(module);
+		return EXIT_FAILURE;
 	}
 
-	auto alpha = static_cast<unsigned int>(std::round((percent / 100.0f) * 255));
-	auto colour = alpha << 24;
+	const auto alpha = static_cast<unsigned int>(std::round((percent / 100.0f) * 255));
+	const auto colour = alpha << 24;
 
-	AccentPolicy policy = { AccentState::BLURBEHIND, APPLY_TINT, colour, 0 };
+	AccentState state = AccentState::BLURBEHIND;
+	if (type == OPTION_BLURBEHIND) {
+		state = AccentState::BLURBEHIND;
+	} else if (type == OPTION_ACRYLIC) {
+		state = AccentState::ACRYLIC;
+	}
+
+	AccentPolicy policy = { state, APPLY_TINT, colour, 0 };
 	WindowCompositionAttributeData attribute = { CompositionAttribute::ACCENT_POLICY, &policy, sizeof(AccentPolicy) };
 	if (!SetWindowCompositionAttribute(conEmuHwnd, &attribute)) {
 		std::cerr << "Error setting window composition" << std::endl;
